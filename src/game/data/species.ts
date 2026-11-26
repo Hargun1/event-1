@@ -242,4 +242,11 @@ export const SPECIES: Record<SpeciesId, SpeciesDef> = {
   },
 };
 
+/** What a newborn of each species is called. */
+export const BABY_NAME: Record<SpeciesId, string> = {
+  gazelle: 'fawn', zebra: 'foal', lion: 'cub', cheetah: 'cub',
+  triceratops: 'hatchling', parasaurolophus: 'hatchling', stegosaurus: 'hatchling', brachiosaurus: 'hatchling', trex: 'hatchling', velociraptor: 'hatchling',
+  reeffish: 'fry', turtle: 'hatchling', manta: 'pup', shark: 'pup', dolphin: 'calf',
+};
+
 export const ALL_SPECIES: SpeciesId[] = Object.keys(SPECIES) as SpeciesId[];

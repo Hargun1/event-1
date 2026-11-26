@@ -86,7 +86,7 @@ export function initControls(ctl: GameController): void {
   sync();
 
   const panel = $('panel'), pBtn = $('panelBtn');
-  const setPanel = (open: boolean) => { panel.classList.toggle('open', open); pBtn.setAttribute('aria-expanded', String(open)); pBtn.classList.toggle('on', open); };
+  const setPanel = (open: boolean) => { panel.classList.toggle('open', open); document.body.classList.toggle('panel-open', open); pBtn.setAttribute('aria-expanded', String(open)); pBtn.classList.toggle('on', open); };
   pBtn.addEventListener('click', () => setPanel(!panel.classList.contains('open')));
 
   window.addEventListener('keydown', e => {

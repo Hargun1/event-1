@@ -10,6 +10,12 @@
 <body>
   <div id="viewport"></div>
   <div id="overlay"></div>
+  <div id="vignette"></div>
+  <div class="banner" id="banner"></div>
+  <div class="minimap-wrap" id="minimapWrap" hidden>
+    <canvas id="minimap"></canvas>
+    <div class="legend-mini"><span><i style="background:#fff"></i>You</span><span><i style="background:#7fd0ff"></i>Family</span><span><i style="background:#f3ecd2"></i>Prey</span><span><i style="background:#e2843a"></i>Predator</span><span><i style="background:#ff4b3a"></i>Hostile</span></div>
+  </div>
 
   <!-- ===== top bar ===== -->
   <header class="topbar" id="topbar">
@@ -19,6 +25,7 @@
     </button>
     <div class="hud-chips">
       <div class="chip"><span class="chip-label">Day</span><b id="day">0</b></div>
+      <div class="chip" id="timeChip"><span id="timeIcon"></span><span id="timeText">Day</span></div>
       <div class="chip status" id="ecoStatus">Thriving</div>
     </div>
     <div class="toolbar">
@@ -44,6 +51,7 @@
       <img id="meIcon" alt="" />
       <div class="me-body">
         <div class="me-name"><b id="meName">Lion</b><span id="meStats"></span></div>
+        <div class="lvl"><span class="lvl-badge" id="meLevel">Lv 1</span><i><b id="meXp"></b></i><em id="meXpTxt"></em></div>
         <div class="stat-bar health"><span>HP</span><i><b id="meHealth"></b></i><em id="meHealthTxt"></em></div>
         <div class="stat-bar energy"><span>Food</span><i><b id="meEnergy"></b></i><em id="meEnergyTxt"></em></div>
         <div class="stat-bar stamina"><span>Run</span><i><b id="meStamina"></b></i><em></em></div>
@@ -51,13 +59,15 @@
       </div>
     </div>
     <div class="target" id="target" hidden></div>
+    <div class="mission" id="mission"></div>
   </section>
   <div class="hint" id="hint" hidden>
-    <b>WASD</b> move · <b>Shift</b> sprint · <b>Space</b>/<b>click</b> attack · <b>B</b> breed · <b>Q/E</b> or right-drag turn · <b>wheel</b> zoom · <b>P</b> pause
+    <b>WASD</b> move · <b>Shift</b> sprint · <b>Space</b>/<b>click</b> attack · <b>B</b> breed · <b>F</b> roar · <b>Q/E</b> or right-drag turn · <b>wheel</b> zoom · <b>P</b> pause
   </div>
   <div class="touch" id="touch" hidden>
     <div class="stick" id="stick"><div class="knob" id="knob"></div></div>
     <div class="touch-btns">
+      <button class="tbtn roar" id="tRoar">Roar</button>
       <button class="tbtn breed" id="tBreed">Breed</button>
       <button class="tbtn sprint" id="tSprint">Sprint</button>
       <button class="tbtn attack" id="tAttack">Attack</button>

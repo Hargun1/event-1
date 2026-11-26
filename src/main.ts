@@ -17,7 +17,28 @@ import { Dashboard } from './ui/dashboard.ts';
 import { PopulationChart } from './ui/charts.ts';
 import { Hud, buildMenu } from './ui/hud.ts';
 import { Sound } from './audio/Sound.ts';
+import { Minimap } from './ui/minimap.ts';
 import type { Ecosystem } from './game/systems/Ecosystem.ts';
+import { isMature as isMatureAnimal } from './game/entities/Animal.ts';
+
+// ---- player roar (F / touch): your animal roars, rivals of the same species may answer
+let roarCooldown = 0;
+function playerRoar(): void {
+  const eco = ctl.eco, p = eco.player;
+  if (ctl.mode !== 'play' || !p || !p.alive || roarCooldown > 0 || !zoneReady) return;
+  roarCooldown = 3.5;
+  sound.unlock();
+  sound.call(p.species.id, 1, 0, 'roar', true);
+  views.roar(p.id);
+  rig.shake(0.35);
+  let rival = null as null | typeof p, bd = 320;
+  for (const a of eco.animals) if (a.alive && !a.isPlayer && !a.kin && a.species === p.species) { const d = Math.hypot(a.x - p.x, a.y - p.y); if (d < bd) { bd = d; rival = a; } }
+  if (rival) {
+    const r = rival;
+    setTimeout(() => { if (!r.alive) return; const s = spatial(r.x, r.y); sound.call(r.species.id, Math.max(0.3, s.vol), s.pan, 'roar', true); views.roar(r.id); }, 2600);
+  }
+}
+window.addEventListener('keydown', e => { if (e.code === 'KeyF' && !e.repeat && (e.target as HTMLElement).tagName !== 'INPUT') playerRoar(); });
 
 const $ = (id: string) => document.getElementById(id)!;
 
@@ -29,9 +50,19 @@ const views = new AnimalViews(world, lib);
 const rig = new CameraRig(world.camera, world.renderer.domElement);
 const input = new InputController(world.renderer.domElement, rig);
 input.bindTouch($('stick'), $('knob'), $('tAttack'), $('tSprint'), $('tBreed'));
+$('tRoar').addEventListener('pointerdown', e => { e.preventDefault(); playerRoar(); });
 const overlay = new Overlay($('overlay'));
 const thumbs = new Thumbnails(lib);
 const sound = new Sound();
+const minimap = new Minimap($('minimap') as HTMLCanvasElement);
+
+/** Big centre-screen banner (level up / mission complete). */
+function banner(title: string, sub: string): void {
+  const b = $('banner');
+  b.innerHTML = `<b>${title}</b><span>${sub}</span>`;
+  b.classList.remove('show'); void b.offsetWidth; b.classList.add('show');
+}
+let hurtFlash = 0;
 
 // ---- sound: unlock on first gesture, mute toggle (button / M)
 const SOUND_ON = '<path d="M3 8h3l4-3.5v11L6 12H3z"/><path d="M13 7.5a3.5 3.5 0 0 1 0 5M15 5a7 7 0 0 1 0 10" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round"/>';
@@ -59,13 +90,25 @@ function audioFrame(eco: Ecosystem, dt: number): void {
       const s = spatial(f.x, f.y);
       sound.sfx('bite', s.vol, s.pan);
       const pred = eco.animals.find(a => a.id === f.predatorId);
-      if (pred) sound.call(pred.species.id, s.vol * 0.9, s.pan);
+      if (pred) sound.call(pred.species.id, pred.isPlayer ? 0.9 : s.vol * 0.9, pred.isPlayer ? 0 : s.pan, 'snarl');
     } else if (f.type === 'hit') {
       const s = spatial(f.x, f.y);
       sound.sfx(f.onPlayer ? 'hurt' : 'bite', f.onPlayer ? 0.9 : s.vol * 0.8, s.pan);
+      if (f.onPlayer) { rig.shake(0.6); hurtFlash = 1; }
+      else if (eco.player && Math.hypot(f.x - eco.player.x, f.y - eco.player.y) < 60) rig.shake(0.15);
+    } else if (f.type === 'levelup') {
+      banner(`LEVEL ${f.level}`, 'Stronger bite · tougher hide · fully healed');
+      sound.sfx('birth', 1, 0);
+      sound.say(`Level ${f.level}!`);
+    } else if (f.type === 'mission') {
+      banner('MISSION COMPLETE', f.title);
+      sound.sfx('birth', 0.9, 0);
     } else if (f.type === 'birth') {
       const s = spatial(f.x, f.y);
-      sound.sfx('birth', s.vol * 0.5, s.pan);
+      const baby = eco.animals.find(a => a.id === f.id);
+      const mine = !!baby?.kin;
+      sound.sfx('birth', mine ? 0.8 : s.vol * 0.6, mine ? 0 : s.pan);
+      if (baby) sound.call(baby.species.id, mine ? 0.8 : s.vol * 0.8, mine ? 0 : s.pan, 'baby', true);
     }
   }
   // the player's own roar / swing
@@ -73,7 +116,7 @@ function audioFrame(eco: Ecosystem, dt: number): void {
   if (p && p.alive) {
     if (p.strikeTimer < lastStrike && p.strikeTimer < 0.05) {
       sound.sfx('swing', 0.6, 0);
-      if (Math.random() < 0.5 || p.species.id === 'trex') sound.call(p.species.id, 0.8, 0);
+      sound.call(p.species.id, 0.75, 0, 'snarl');
     }
     lastStrike = p.strikeTimer;
   }
@@ -87,7 +130,13 @@ function audioFrame(eco: Ecosystem, dt: number): void {
       const s = spatial(a.x, a.y);
       if (s.vol < 0.15) continue;
       const excited = a.behaviour === 'fighting' || a.behaviour === 'fleeing' || a.behaviour === 'hunting';
-      if (excited || Math.random() < 0.3) { sound.call(a.species.id, s.vol * (excited ? 1 : 0.7), s.pan); break; }
+      if (a.species.id === 'lion' || a.species.id === 'trex') {
+        // big cats and tyrants roar occasionally (long calls carry far)
+        if (Math.random() < (excited ? 0.25 : 0.08)) { sound.call(a.species.id, Math.max(s.vol, 0.35), s.pan, 'roar'); break; }
+        continue;
+      }
+      if (!isMatureAnimal(a) && Math.random() < 0.3) { sound.call(a.species.id, s.vol * 0.8, s.pan, 'baby'); break; }
+      if (excited || Math.random() < 0.3) { sound.call(a.species.id, s.vol * (excited ? 1 : 0.7), s.pan, a.behaviour === 'fighting' ? 'snarl' : 'call'); break; }
     }
   }
   sound.tickAmbient(dt);
@@ -202,6 +251,7 @@ function frame(now: number): void {
       if (n === 16) acc = 0;
     }
     audioFrame(eco, dt);
+    roarCooldown -= dt;
     views.handleFx(eco.fx);
     eco.fx.length = 0;
     const vdt = simulating ? dt * ctl.speed : 0;
@@ -211,7 +261,12 @@ function frame(now: number): void {
     if (ctl.mode === 'play' && eco.player && views.position(eco.player.id, focus)) f = focus;
     else if (ctl.mode === 'watch' && ctl.selectedId !== null && views.position(ctl.selectedId, focus)) f = focus;
     rig.update(dt, f);
-    world.update(simulating ? dt : dt * 0.2, f ?? rig.orbit.target ?? centre);
+    world.update(simulating ? dt : dt * 0.2, f ?? rig.orbit.target ?? centre, eco.darkness(), eco.dayPhase());
+    // low-health vignette + hit flash
+    hurtFlash = Math.max(0, hurtFlash - dt * 2.5);
+    const pl = eco.player;
+    const low = ctl.mode === 'play' && pl && pl.alive ? Math.max(0, 1 - (pl.health / pl.maxHealth) / 0.35) : 0;
+    $('vignette').style.opacity = String(Math.min(1, low * 0.8 + hurtFlash * 0.7));
 
     vegTimer += dt;
     if (vegTimer > 0.5) { vegTimer = 0; world.updateVegetation(eco.grass); }
@@ -226,6 +281,7 @@ function frame(now: number): void {
       dashboard.update();
       hud.update();
       if ($('panel').classList.contains('open')) chart.draw(ctl.eco.history);
+      if (ctl.mode !== 'menu') minimap.draw(ctl.eco, ctl.mode === 'play' ? rig.yaw : null);
     }
   }
   requestAnimationFrame(frame);

@@ -25,7 +25,7 @@ export function playerAttack(p: Animal, eco: Ecosystem): void {
   let best: Animal | null = null, bestScore = Infinity;
   const reach = s.radius + s.attackRange + PLAYER.reachBonus;
   eco.grid.query(p.x, p.y, reach + 30, o => {
-    if (o === p || !o.alive) return;
+    if (o === p || !o.alive || o.kin) return; // never bite your own family
     const d = Math.hypot(o.x - p.x, o.y - p.y) - o.species.radius;
     if (d > reach) return;
     const off = Math.abs(angleDiff(p.heading, Math.atan2(o.y - p.y, o.x - p.x)));
@@ -36,7 +36,7 @@ export function playerAttack(p: Animal, eco: Ecosystem): void {
   const t = best as Animal | null;
   if (!t) return;
   const sprinting = p.speed > s.walkSpeed * 2.2;
-  const amount = s.attack * (sprinting ? 1.35 : 1) * eco.rng.range(0.85, 1.15);
+  const amount = s.attack * eco.progress.attackMult * (sprinting ? 1.35 : 1) * eco.rng.range(0.85, 1.15);
   eco.playerStats.damage += amount;
   if (damage(t, amount, eco, p)) {
     eco.onPlayerKill(p, t);

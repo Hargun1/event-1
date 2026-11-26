@@ -14,6 +14,10 @@ export class CameraRig {
   private camera: THREE.PerspectiveCamera;
   readonly orbit: OrbitControls;
   private mode: 'follow' | 'orbit' = 'orbit';
+  private shakeAmt = 0;
+
+  /** Short camera shake (hits, roars). */
+  shake(amount: number): void { this.shakeAmt = Math.min(1.2, this.shakeAmt + amount); }
 
   constructor(camera: THREE.PerspectiveCamera, dom: HTMLElement) {
     this.camera = camera;
@@ -70,6 +74,13 @@ export class CameraRig {
     if (this.zone === 'water') want.y = Math.min(want.y, 16.5);
     this.camera.position.lerp(want, Math.min(1, dt * 8));
     this.camera.lookAt(this.target.x, this.target.y + (this.zone === 'dino' ? 3 : 1.2), this.target.z);
+    if (this.shakeAmt > 0.01) {
+      const a = this.shakeAmt * 0.35;
+      this.camera.position.x += (Math.random() - 0.5) * a;
+      this.camera.position.y += (Math.random() - 0.5) * a;
+      this.camera.rotation.z += (Math.random() - 0.5) * a * 0.02;
+      this.shakeAmt *= Math.pow(0.02, dt);
+    }
   }
 
   /** Point the orbit camera at a position (watch mode focus). */

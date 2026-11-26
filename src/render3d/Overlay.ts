@@ -9,6 +9,7 @@ export class Overlay {
   private host: HTMLElement;
   private bars = new Map<number, Bar>();
   private v = new THREE.Vector3();
+  private lastBorn = 0;
 
   constructor(host: HTMLElement) { this.host = host; }
 
@@ -30,7 +31,7 @@ export class Overlay {
     let shown = 0;
     for (const a of eco.animals) {
       if (!a.alive || a.isPlayer) continue;
-      const fighting = a.aggro > 0 || a.hurtTimer < 4 || a.id === focusId;
+      const fighting = a.aggro > 0 || a.hurtTimer < 4 || a.id === focusId || (a.kin && eco.player !== null);
       if (!fighting || shown >= 12) continue;
       if (!views.anchor(a.id, anchor)) continue;
       const s = this.project(anchor, camera);
@@ -46,8 +47,9 @@ export class Overlay {
         this.bars.set(a.id, b);
       }
       b.used = true;
-      (b.el.firstElementChild as HTMLElement).textContent = a.species.name + (a.aggro > 0 ? ' ⚔' : '');
+      (b.el.firstElementChild as HTMLElement).textContent = a.kin ? (a.mate && a.mate.isPlayer ? '♥ Your mate' : `Your ${a.species.name.toLowerCase()}${a.parent ? ' (young)' : ''}`) : a.species.name + (a.aggro > 0 ? ' ⚔' : '');
       b.el.classList.toggle('hostile', a.aggro > 0);
+      b.el.classList.toggle('kin', a.kin);
       b.fill.style.width = `${Math.max(0, a.health / a.maxHealth) * 100}%`;
       b.el.style.transform = `translate(${s.x}px, ${s.y}px) translate(-50%, -100%)`;
     }
@@ -65,5 +67,19 @@ export class Overlay {
       setTimeout(() => el.remove(), 900);
     }
     views.hits.length = 0;
+    for (const b of views.births) {
+      const s = this.project(b.pos, camera);
+      if (!s) continue;
+      // don't flood the screen: AI births at most every 1.2 s and only when reasonably close
+      if (!b.mine && (performance.now() - this.lastBorn < 1200 || b.pos.distanceTo(camera.position) > 70)) continue;
+      this.lastBorn = performance.now();
+      const el = document.createElement('div');
+      el.className = 'born' + (b.mine ? ' mine' : '');
+      el.textContent = b.text;
+      el.style.left = `${s.x}px`; el.style.top = `${s.y}px`;
+      this.host.appendChild(el);
+      setTimeout(() => el.remove(), 2200);
+    }
+    views.births.length = 0;
   }
 }

@@ -1,5 +1,5 @@
 import type { Animal } from './Animal.ts';
-import { energyFrac } from './Animal.ts';
+import { energyFrac, followParent } from './Animal.ts';
 import { selectPrey, tryAttack } from '../systems/HuntingSystem.ts';
 import type { Ecosystem } from '../systems/Ecosystem.ts';
 import { aiFight, maybeChallenge } from '../systems/CombatSystem.ts';
@@ -35,6 +35,23 @@ export function updatePredator(a: Animal, dt: number, eco: Ecosystem): void {
     return;
   }
   if (a.behaviourHold > 0) { a.behaviourHold -= dt; a.desiredSpeed = 0; return; }
+
+  // your mate stays by your side; when hungry it may hunt, but never strays far
+  const mate = a.mate;
+  if (mate && mate.alive && mate.isPlayer) {
+    const d = Math.hypot(mate.x - a.x, mate.y - a.y);
+    const hungry = energyFrac(a) < s.hungerThreshold;
+    if (d > (hungry && a.behaviour === 'hunting' ? 240 : hungry ? 130 : 55)) {
+      release(a);
+      a.behaviour = 'following';
+      a.desiredHeading = Math.atan2(mate.y - a.y, mate.x - a.x);
+      a.desiredSpeed = Math.min(s.runSpeed * 0.85, Math.max(s.walkSpeed * 1.4, mate.speed * 1.1));
+      return;
+    }
+  }
+
+  // cubs tag along with their parent and are fed from its kills
+  if (followParent(a, a.behaviour === 'following' ? 22 : 40)) { release(a); return; }
 
   // satisfied: lounge and patrol
   if (energyFrac(a) >= s.hungerThreshold) {

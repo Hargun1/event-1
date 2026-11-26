@@ -71,6 +71,9 @@ export class World3D {
   private mixers: THREE.AnimationMixer[] = [];
   private drifters: { obj: THREE.Object3D; cx: number; cz: number; r: number; speed: number; phase: number; y: number }[] = [];
   private snow: THREE.Points | null = null;
+  private stars: THREE.Points;
+  private fogDay = new THREE.Color();
+  private tmpCol = new THREE.Color();
   private time = 0;
 
   constructor(host: HTMLElement) {
@@ -89,6 +92,15 @@ export class World3D {
     this.sun.shadow.bias = -0.0005;
     this.sun.shadow.normalBias = 0.04;
     this.scene.add(this.sun, this.sun.target, this.hemi, this.zoneGroup);
+    // night sky
+    const starPos = new Float32Array(1500 * 3);
+    for (let i = 0; i < 1500; i++) {
+      const u = Math.random() * Math.PI * 2, v = Math.random() * 0.45 * Math.PI;
+      starPos.set([Math.cos(u) * Math.cos(v) * 420, Math.sin(v) * 420 + 20, Math.sin(u) * Math.cos(v) * 420], i * 3);
+    }
+    const sg = new THREE.BufferGeometry(); sg.setAttribute('position', new THREE.BufferAttribute(starPos, 3));
+    this.stars = new THREE.Points(sg, new THREE.PointsMaterial({ color: 0xffffff, size: 1.6, sizeAttenuation: false, transparent: true, opacity: 0, fog: false, depthWrite: false }));
+    this.scene.add(this.stars);
     this.groundCanvas.width = this.baseCanvas.width = this.overlayCanvas.width = WORLD.width;
     this.groundCanvas.height = this.baseCanvas.height = this.overlayCanvas.height = WORLD.height;
     const resize = () => {
@@ -102,6 +114,9 @@ export class World3D {
   }
 
   get underwater(): boolean { return this.zone === 'water'; }
+
+  /** Colour of kicked-up dust (zone soil). */
+  get dustColor(): number { return new THREE.Color(this.pal.soil).getHex(); }
 
   toWorld(x: number, y: number, out = new THREE.Vector3()): THREE.Vector3 {
     return out.set((x - WORLD.width / 2) * S, this.heightAt(x, y), (y - WORLD.height / 2) * S);
@@ -135,6 +150,7 @@ export class World3D {
     this.scene.fog = new THREE.Fog(pal.fog, pal.fogNear, pal.fogFar);
     this.sun.color.setHex(pal.sun); this.sun.intensity = pal.sunI;
     this.hemi.color.setHex(pal.hemiSky); this.hemi.groundColor.setHex(pal.hemiGround); this.hemi.intensity = pal.hemiI;
+    this.fogDay.setHex(pal.fog);
 
     this.paintBase();
     this.buildGround();
@@ -466,7 +482,25 @@ export class World3D {
   }
 
   /** Per-frame environment animation + shadow camera follow. */
-  update(dt: number, focus: THREE.Vector3): void {
+  /** Day/night lighting: `dark` 0 = noon … 1 = midnight, `phase` 0..1 around the cycle. */
+  private applyDayNight(dark: number, phase: number): void {
+    const pal = this.pal;
+    const dusk = Math.max(0, 1 - Math.abs(dark - 0.45) / 0.3); // warm light around sunset / sunrise
+    const sunCol = this.tmpCol.setHex(pal.sun).lerp(new THREE.Color(0xff9a4a), dusk * 0.7).lerp(new THREE.Color(0x8fa8ff), Math.max(0, dark - 0.6) * 2);
+    this.sun.color.copy(sunCol);
+    this.sun.intensity = pal.sunI * (1 - dark * 0.82);
+    this.hemi.intensity = pal.hemiI * (1 - dark * 0.6);
+    this.hemi.color.setHex(pal.hemiSky).lerp(new THREE.Color(0x34457a), dark * 0.8);
+    const night = this.underwater ? 0x04182a : 0x101a30;
+    if (this.scene.fog) (this.scene.fog as THREE.Fog).color.copy(this.fogDay).lerp(new THREE.Color(night), dark * 0.85).lerp(new THREE.Color(0xd9844a), this.underwater ? 0 : dusk * 0.25);
+    this.renderer.toneMappingExposure = 1.05 - dark * 0.5;
+    (this.stars.material as THREE.PointsMaterial).opacity = this.underwater ? 0 : Math.max(0, dark - 0.35) * 1.4;
+    this.sunAngle = phase * Math.PI * 2;
+  }
+  private sunAngle = 0.4;
+
+  update(dt: number, focus: THREE.Vector3, dark = 0, phase = 0.25): void {
+    this.applyDayNight(dark, phase);
     this.time += dt;
     this.swayUniform.value = this.time;
     for (const m of this.mixers) m.update(dt);
@@ -488,7 +522,10 @@ export class World3D {
       else if (o.userData.smoke !== undefined) o.position.y += Math.sin(this.time * 0.3 + o.userData.smoke) * dt * 0.5;
     });
     // sun follows the action so shadows stay crisp
-    this.sun.position.set(focus.x + 30, focus.y + 60, focus.z + 22);
+    // the sun / moon arcs across the sky with the cycle
+    const arc = Math.abs(Math.sin(this.sunAngle)) * 0.8 + 0.2;
+    this.sun.position.set(focus.x + Math.cos(this.sunAngle) * 60, focus.y + 70 * arc, focus.z + 22);
+    this.stars.position.set(focus.x, 0, focus.z);
     this.sun.target.position.copy(focus);
   }
 

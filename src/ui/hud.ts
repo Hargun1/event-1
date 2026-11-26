@@ -4,6 +4,7 @@ import { SPECIES } from '../game/data/species.ts';
 import type { SpeciesId, ZoneId } from '../game/data/species.ts';
 import { ZONES, ZONE_ORDER, MODEL_CREDITS } from '../game/data/zones.ts';
 import { SIM, PLAYER } from '../game/config.ts';
+import { MISSIONS } from '../game/systems/Progression.ts';
 import { angleDiff } from '../game/utils/math.ts';
 
 function el(id: string): HTMLElement {
@@ -66,7 +67,7 @@ export class Hud {
     let best: Animal | null = null, bd = Infinity;
     const reach = p.species.radius + p.species.attackRange + PLAYER.reachBonus;
     for (const a of this.ctl.eco.animals) {
-      if (a === p || !a.alive) continue;
+      if (a === p || !a.alive || a.kin) continue;
       const d = Math.hypot(a.x - p.x, a.y - p.y) - a.species.radius;
       if (a.aggro > 0 && d < 200) { if (d - 1000 < bd) { bd = d - 1000; best = a; } continue; }
       if (d > reach * 3) continue;
@@ -82,6 +83,14 @@ export class Hud {
 
   update(): void {
     const ctl = this.ctl, eco = ctl.eco, play = ctl.mode === 'play';
+    const dark = eco.darkness(), ph = eco.dayPhase();
+    const tc0 = el('timeChip');
+    const label = dark > 0.65 ? 'Night' : dark > 0.2 ? (ph < 0.25 || ph > 0.85 ? 'Dawn' : 'Dusk') : 'Day';
+    el('timeText').textContent = label;
+    tc0.classList.toggle('night', label === 'Night');
+    tc0.classList.toggle('dusk', label === 'Dusk' || label === 'Dawn');
+    tc0.title = label === 'Night' ? 'Night: prey spot predators later — best time to hunt' : 'Day/night cycle';
+    el('minimapWrap').hidden = ctl.mode === 'menu';
     el('hud').hidden = !play;
     el('hint').hidden = !play;
     el('touch').hidden = !play || !matchMedia('(pointer: coarse)').matches;
@@ -98,13 +107,23 @@ export class Hud {
       el('meEnergy').style.width = `${(p.energy / sp.maxEnergy) * 100}%`;
       el('meEnergyTxt').textContent = `${Math.round((p.energy / sp.maxEnergy) * 100)}%`;
       el('meStamina').style.width = `${p.stamina * 100}%`;
-      const crit = p.alive ? eco.criteria(p) : [];
-      const missing = crit.filter(c => !c.ok);
-      const ready = p.alive && missing.length === 0;
+      const ready = p.alive;
       const br = el('meBreed');
       br.className = 'breed' + (ready ? ' ready' : '');
-      br.innerHTML = ready ? '<b>Ready to breed</b> — press B' : `Breed: <b>${missing.map(c => c.label).slice(0, 2).join(', ') || '—'}</b>${eco.playerStats.cubs ? ` · ${eco.playerStats.cubs} offspring` : ''}`;
+      const fam = eco.animals.filter(a => a.alive && a.kin);
+      const mateAlive = !!(p.mate && p.mate.alive);
+      const young = fam.filter(a => a.parent === p).length;
+      const famTxt = `${mateAlive ? '♥ mate' : 'no mate'} · ${young} young · ${fam.length} family`;
+      br.innerHTML = `<b>Press B to have a baby</b> · ${famTxt}`;
       el('tBreed').classList.toggle('ready', ready);
+      const pr = eco.progress;
+      el('meLevel').textContent = `Lv ${pr.level}`;
+      el('meXp').style.width = `${(pr.xp / pr.xpNext) * 100}%`;
+      el('meXpTxt').textContent = `${pr.xp}/${pr.xpNext} XP`;
+      const m = pr.current();
+      el('mission').innerHTML = m
+        ? `<small>Mission ${pr.mission + 1}/${MISSIONS.length} · +${m.xp} XP</small>${m.title}<div class="prog"><b style="width:${Math.min(1, m.progress(eco) / m.goal) * 100}%"></b></div>`
+        : '<small>All missions complete</small>You are a legend of this zone.';
     }
     const t = p && p.alive ? this.nearestTarget(p) : null;
     this.targetId = t ? t.id : null;

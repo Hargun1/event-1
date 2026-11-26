@@ -7,7 +7,7 @@ import { updateHerbivore } from '../entities/Herbivore.ts';
 import { updatePredator } from '../entities/Predator.ts';
 import { createInput, updatePlayer } from '../entities/Player.ts';
 import type { PlayerInput } from '../entities/Player.ts';
-import { SPECIES } from '../data/species.ts';
+import { BABY_NAME, SPECIES } from '../data/species.ts';
 import type { SpeciesId, ZoneId } from '../data/species.ts';
 import { ZONES } from '../data/zones.ts';
 import type { ZoneDef } from '../data/zones.ts';
@@ -20,6 +20,7 @@ import { updateLifecycle } from './LifecycleSystem.ts';
 import { breedCriteria, giveBirth, tryReproduce } from './ReproductionSystem.ts';
 import type { Criterion } from './ReproductionSystem.ts';
 import { SpatialGrid } from './SpatialGrid.ts';
+import { Progress } from './Progression.ts';
 import { emptyDay, evaluateStatus, extinctionReason, get, inc } from './PopulationSystem.ts';
 import type { Counts, DayRecord, EcoStatus, Sample } from './PopulationSystem.ts';
 
@@ -28,8 +29,11 @@ export interface EcoEvent { id: number; day: number; kind: EventKind; text: stri
 export type FxEvent =
   | { type: 'kill'; preyId: number; predatorId: number; x: number; y: number }
   | { type: 'death'; id: number; cause: 'starvation' | 'old age' }
-  | { type: 'birth'; id: number; x: number; y: number }
-  | { type: 'hit'; id: number; x: number; y: number; amount: number; onPlayer: boolean };
+  | { type: 'birth'; id: number; parentId: number; x: number; y: number }
+  | { type: 'hit'; id: number; x: number; y: number; amount: number; onPlayer: boolean }
+  | { type: 'levelup'; level: number }
+  | { type: 'hearts'; id: number }
+  | { type: 'mission'; title: string };
 
 export interface PlayerStats { kills: number; cubs: number; damage: number; spawnTime: number; deathTime: number | null; killedBy: string | null }
 
@@ -60,6 +64,11 @@ export class Ecosystem {
   input: PlayerInput = createInput();
   playerStats: PlayerStats = { kills: 0, cubs: 0, damage: 0, spawnTime: 0, deathTime: null, killedBy: null };
   playerInvuln = 0;
+  private familyGiven = false;
+  private breedLock = 0;
+  readonly progress = new Progress();
+  /** Length of a full day/night cycle in sim days. */
+  static readonly CYCLE_DAYS = 5;
 
   private newborns: Animal[] = [];
   private today: DayRecord = emptyDay();
@@ -94,6 +103,9 @@ export class Ecosystem {
     this.events = []; this.fx = []; this.history = []; this.records = [];
     this.today = emptyDay(); this.throttle.clear(); this.flagDay.clear(); this.extinct.clear();
     this.lastSample = -1; this.player = null;
+    this.progress.reset();
+    this.familyGiven = false;
+    this.breedLock = 0;
     this.playerStats = { kills: 0, cubs: 0, damage: 0, spawnTime: 0, deathTime: null, killedBy: null };
     this.grass.reset(this.rng, this.settings.initialGrass);
     for (const id of this.species) {
@@ -135,37 +147,77 @@ export class Ecosystem {
     p.isPlayer = true;
     p.age = s.matureDays * SIM.daySeconds + 1;
     p.lifespan = Infinity;
-    p.maxHealth = s.maxHealth * PLAYER.healthMult;
+    p.maxHealth = s.maxHealth * PLAYER.healthMult * this.progress.healthMult;
     p.health = p.maxHealth;
     p.energy = s.maxEnergy * 0.85;
     p.breedCooldown = s.breedCooldown * 0.5;
     this.player = p;
     this.animals.push(p);
+    // your family: a mate that follows you, plus two young on your first spawn in this zone
+    const old = this.animals.find(a => a.alive && a.kin && a.mate && !a.mate.alive && a.species === s);
+    if (old) { old.mate = p; p.mate = old; old.x = p.x + 14; old.y = p.y + 8; }
+    else {
+      const m = createAnimal(s, Math.min(WORLD.play.right - 8, p.x + 16), p.y + 8, this.rng, true);
+      m.kin = true; m.mate = p; p.mate = m;
+      m.energy = s.maxEnergy * 0.8; m.maxHealth = s.maxHealth * 1.4; m.health = m.maxHealth;
+      m.breedCooldown = Infinity; // only breeds with you
+      this.animals.push(m);
+    }
+    if (!this.familyGiven) {
+      this.familyGiven = true;
+      for (let i = 0; i < 2; i++) {
+        const y = createAnimal(s, p.x - 10 + i * 20, p.y - 14, this.rng, false);
+        y.kin = true; y.parent = p; y.age = s.matureDays * SIM.daySeconds * 0.35; y.energy = s.maxEnergy * 0.7;
+        this.animals.push(y);
+      }
+    }
     this.living = this.animals.length;
     this.playerInvuln = PLAYER.respawnInvuln;
     this.playerStats = { kills: 0, cubs: 0, damage: 0, spawnTime: this.time, deathTime: null, killedBy: null };
-    this.emit('player', `You enter ${this.zone.name} as a ${s.name}. Hunt to stay fed!`);
+    this.emit('player', `You enter ${this.zone.name} as a ${s.name} with your family. Hunt to feed them, and breed with your mate (B)!`);
     return p;
   }
 
   /** Reproduction checklist for any animal (inspector / HUD). */
   criteria(a: Animal): Criterion[] { return breedCriteria(a, this); }
 
-  /** Player breeds when every criterion is met; the cub is on the player's side. */
+  /** Player breeds instantly on B; the baby is on the player's side. */
   playerBreed(): boolean {
     const p = this.player;
-    if (!p || !p.alive) return false;
-    const missing = breedCriteria(p, this).filter(c => !c.ok);
-    if (missing.length) {
-      this.emit('player', `Can't breed yet — ${missing.map(c => c.label.toLowerCase()).join(', ')}.`, 'breed-fail', 6);
+    if (!p || !p.alive || this.time < this.breedLock) return false;
+    if (this.livingCount() >= SIM.maxAnimals) {
+      this.emit('player', 'The zone is full — no room for more babies right now.', 'breed-full', 3);
       return false;
     }
+    this.breedLock = this.time + 0.8; // stops a held key spawning dozens at once
+    // no mate? win over a calm adult of your species standing close by
+    if (!p.mate || !p.mate.alive) {
+      let best: Animal | null = null, bd = 70;
+      for (const a of this.animals) {
+        if (!a.alive || a.isPlayer || a.species !== p.species || a.aggro > 0 || a.age < a.species.matureDays * SIM.daySeconds || (a.mate && a.mate.alive)) continue;
+        const d = Math.hypot(a.x - p.x, a.y - p.y);
+        if (d < bd) { bd = d; best = a; }
+      }
+      if (best) {
+        best.kin = true; best.mate = p; p.mate = best; best.aggro = 0; best.breedCooldown = Infinity; best.target = null;
+        this.fx.push({ type: 'hearts', id: best.id }); this.fx.push({ type: 'hearts', id: p.id });
+        this.emit('player', `A ${p.species.name.toLowerCase()} has become your mate!`);
+      }
+    }
+    // no requirements and no cost: the baby arrives right away
+    const energy = p.energy;
     const baby = giveBirth(p, this);
+    p.energy = energy;
+    p.breedCooldown = 0;
+    p.behaviourHold = 0;
     this.newborns.push(baby);
     inc(this.today.births, p.species.id);
     this.playerStats.cubs++;
-    this.fx.push({ type: 'birth', id: baby.id, x: baby.x, y: baby.y });
-    this.emit('player', `Your ${p.species.name} offspring was born! It will roam the zone on its own.`);
+    this.progress.cubs++;
+    this.progress.addXp(this, 40);
+    this.fx.push({ type: 'birth', id: baby.id, parentId: p.id, x: baby.x, y: baby.y });
+    if (p.mate && p.mate.alive) this.fx.push({ type: 'hearts', id: p.mate.id });
+    this.emit('player', `Your ${p.species.name} ${BABY_NAME[p.species.id]} was born! It follows you and shares your kills.`);
     return true;
   }
 
@@ -192,6 +244,18 @@ export class Ecosystem {
     this.player = null;
   }
 
+  /** 0..1 position in the day/night cycle (0 = dawn, 0.25 = noon, 0.5 = dusk, 0.75 = midnight). */
+  dayPhase(): number {
+    return (this.time / (SIM.daySeconds * Ecosystem.CYCLE_DAYS) + 0.05) % 1;
+  }
+
+  /** 0 at full day … 1 at deep night. */
+  darkness(): number {
+    const ph = this.dayPhase();
+    const sun = Math.sin(ph * Math.PI * 2); // >0 day, <0 night
+    return Math.min(1, Math.max(0, (0.15 - sun) / 0.55));
+  }
+
   livingCount(): number { return this.living + this.newborns.length; }
 
   updateLive(patch: Partial<Pick<SimSettings, 'grassGrowth' | 'reproduction'>>): void {
@@ -211,6 +275,7 @@ export class Ecosystem {
 
   onKill(pred: Animal, prey: Animal): void {
     inc(this.today.hunted, prey.species.id);
+    this.feedYoung(pred, prey);
     this.fx.push({ type: 'kill', preyId: prey.id, predatorId: pred.id, x: prey.x, y: prey.y });
     this.emit('hunt', `A ${pred.species.name.toLowerCase()} caught a ${prey.species.name.toLowerCase()}.`, 'kill', 4);
   }
@@ -218,9 +283,20 @@ export class Ecosystem {
   onPlayerKill(p: Animal, prey: Animal): void {
     inc(this.today.hunted, prey.species.id);
     p.energy = Math.min(p.species.maxEnergy, p.energy + prey.species.meatValue);
+    this.feedYoung(p, prey);
     this.playerStats.kills++;
+    if (prey.species.trophic === 'predator') this.progress.predKills++; else this.progress.herbKills++;
+    this.progress.addXp(this, (prey.species.trophic === 'predator' ? 60 : 15) + prey.species.meatValue / 10);
     this.fx.push({ type: 'kill', preyId: prey.id, predatorId: p.id, x: prey.x, y: prey.y });
     this.emit('player', `You took down a ${prey.species.name.toLowerCase()}! (+${Math.round(prey.species.meatValue)} energy)`);
+  }
+
+  /** Young that are close to a parent when it kills get a share of the meat. */
+  private feedYoung(parent: Animal, prey: Animal): void {
+    for (const a of this.animals) {
+      if (!a.alive || (a.parent !== parent && a.mate !== parent) || Math.hypot(a.x - parent.x, a.y - parent.y) > 90) continue;
+      a.energy = Math.min(a.species.maxEnergy, a.energy + prey.species.meatValue * 0.4);
+    }
   }
 
   onPlayerDeath(killer: Animal | null): void {
@@ -236,6 +312,7 @@ export class Ecosystem {
   step(dt: number): void {
     this.time += dt;
     this.playerInvuln -= dt;
+    if (this.player) this.progress.update(this);
     this.grass.grow(dt, this.settings.grassGrowth * this.zone.growth);
 
     this.grid.clear();
@@ -276,8 +353,8 @@ export class Ecosystem {
       if (baby) {
         this.newborns.push(baby);
         inc(this.today.births, a.species.id);
-        this.fx.push({ type: 'birth', id: baby.id, x: baby.x, y: baby.y });
-        this.emit('birth', `A ${a.species.name.toLowerCase()} was born.`, 'birth', 3);
+        this.fx.push({ type: 'birth', id: baby.id, parentId: a.id, x: baby.x, y: baby.y });
+        this.emit('birth', `A ${a.species.name.toLowerCase()} ${BABY_NAME[a.species.id]} was born.`, 'birth', 3);
       }
     }
 

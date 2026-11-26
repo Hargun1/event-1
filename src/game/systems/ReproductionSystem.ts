@@ -33,6 +33,10 @@ export function breedCriteria(a: Animal, eco: Ecosystem): Criterion[] {
   ];
   if (s.trophic === 'herbivore') list.push({ label: `Plenty of ${eco.zone.food} here`, ok: eco.grass.at(a.x, a.y) >= 0.4 });
   if (!a.isPlayer) list.push({ label: s.trophic === 'predator' ? 'Own territory (no rival nearby)' : 'Herd not overcrowded', ok: crowding(a, eco) < s.crowdLimit });
+  else {
+    const m = a.mate;
+    list.push({ label: m && m.alive ? 'Mate close by' : 'Have a mate (B near a calm adult)', ok: !!m && m.alive && Math.hypot(m.x - a.x, m.y - a.y) < 80 });
+  }
   list.push({ label: 'Island not at capacity', ok: eco.livingCount() < SIM.maxAnimals });
   return list;
 }
@@ -49,6 +53,7 @@ export function giveBirth(a: Animal, eco: Ecosystem): Animal {
   const by = clamp(a.y + eco.rng.range(4, 10), P.top + 6, P.bottom - 6);
   const baby = createAnimal(s, bx, by, eco.rng, false);
   baby.kin = a.isPlayer || a.kin;
+  baby.parent = a;
   return baby;
 }
 
@@ -57,6 +62,7 @@ export function tryReproduce(a: Animal, eco: Ecosystem): Animal | null {
   const s = a.species;
   // cheap early-outs before the full checklist
   if (a.breedCooldown > 0 || !isMature(a) || a.energy < s.breedThreshold * s.maxEnergy) return null;
+  if (a.mate && a.mate.isPlayer) return null; // your mate only breeds with you
   const crit = breedCriteria(a, eco);
   if (!crit.every(c => c.ok)) {
     // blocked by crowding or capacity: try again a little later

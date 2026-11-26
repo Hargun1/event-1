@@ -15,7 +15,7 @@ const EVENT_COLORS: Record<EventKind, string> = {
 export const BEHAVIOUR_TEXT: Record<Behaviour, string> = {
   wandering: 'Wandering', searching: 'Searching for food', grazing: 'Grazing', fleeing: 'Fleeing!',
   stalking: 'Stalking prey', hunting: 'Hunting', feeding: 'Feeding', resting: 'Resting', reproducing: 'Reproducing',
-  hiding: 'Hiding in cover', fighting: 'Fighting!',
+  hiding: 'Hiding in cover', fighting: 'Fighting!', following: 'Following family',
 };
 
 const FOOD_ICON = `<svg class="icon" viewBox="0 0 40 30"><path d="M6 28c2-9 5-14 9-17M14 28c0-8 2-14 6-20M22 28c1-7 4-12 9-15M29 28c1-5 3-8 6-10" stroke="#5c9a3c" stroke-width="2.6" fill="none" stroke-linecap="round"/></svg>`;

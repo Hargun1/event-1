@@ -1,5 +1,5 @@
 import type { Animal } from './Animal.ts';
-import { energyFrac } from './Animal.ts';
+import { energyFrac, followParent } from './Animal.ts';
 import { canEat } from '../data/foodWeb.ts';
 import { seekAndGraze } from '../systems/FeedingSystem.ts';
 import { angleDiff } from '../utils/math.ts';
@@ -32,11 +32,13 @@ export function updateHerbivore(a: Animal, dt: number, eco: Ecosystem): void {
 
   // 1. danger
   let fx = 0, fy = 0, threats = 0;
+  // at night prey notice danger later — predators' best hunting time
+  const nightVision = 1 - eco.darkness() * 0.3;
   eco.grid.query(a.x, a.y, s.sight, o => {
     if (!o.alive || o.species.trophic !== 'predator' || !(o.isPlayer || canEat(o.species.id, s.id))) return;
     const dx = a.x - o.x, dy = a.y - o.y, d = Math.hypot(dx, dy) || 1;
     // a stalking predator is noticed later than one sprinting or walking openly
-    const detect = s.sight * (o.behaviour === 'stalking' ? o.species.stealth : o.behaviour === 'hunting' ? 1 : 0.8);
+    const detect = s.sight * (o.behaviour === 'stalking' ? o.species.stealth : o.behaviour === 'hunting' ? 1 : 0.8) * nightVision;
     if (d > detect) return;
     fx += dx / (d * d); fy += dy / (d * d); threats++;
   });
@@ -71,6 +73,15 @@ export function updateHerbivore(a: Animal, dt: number, eco: Ecosystem): void {
   if (a.behaviourHold > 0) {
     a.behaviourHold -= dt;
     a.desiredSpeed = 0;
+    return;
+  }
+
+  // 3. young stay close to their mother (they graze beside her)
+  if (followParent(a, a.behaviour === 'following' ? 18 : 34)) return;
+  if (a.mate && a.mate.alive && a.mate.isPlayer && Math.hypot(a.mate.x - a.x, a.mate.y - a.y) > 55) {
+    a.behaviour = 'following';
+    a.desiredHeading = Math.atan2(a.mate.y - a.y, a.mate.x - a.x);
+    a.desiredSpeed = s.walkSpeed * 1.6;
     return;
   }
 

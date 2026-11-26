@@ -4,7 +4,7 @@ import type { Rng } from '../utils/random.ts';
 
 export type Behaviour =
   | 'wandering' | 'searching' | 'grazing' | 'fleeing'
-  | 'stalking' | 'hunting' | 'feeding' | 'resting' | 'reproducing' | 'hiding' | 'fighting';
+  | 'stalking' | 'hunting' | 'feeding' | 'resting' | 'reproducing' | 'hiding' | 'fighting' | 'following';
 
 export type DeathCause = 'hunted' | 'starvation' | 'old age' | 'fight';
 
@@ -49,6 +49,10 @@ export interface Animal {
   isPlayer: boolean;
   /** Offspring of the player (never challenges the player). */
   kin: boolean;
+  /** Mother / father — juveniles stay close and share its kills. */
+  parent: Animal | null;
+  /** Breeding partner (the player's mate links both ways). */
+  mate: Animal | null;
   /** Seconds this animal stays aggressive toward the player. */
   aggro: number;
   /** Seconds since last damage (renderer flashes / shows health bar). */
@@ -91,7 +95,7 @@ export function createAnimal(species: SpeciesDef, x: number, y: number, rng: Rng
     thinkTimer: rng.range(0, 0.5),
     wanderAngle: rng.range(0, Math.PI * 2),
     chaseTime: 0, restTime: 0, attackCooldown: 0, pursuedBy: 0, hidden: false,
-    isPlayer: false, kin: false, aggro: 0, hurtTimer: 99, strikeTimer: 99, stamina: 1,
+    isPlayer: false, kin: false, parent: null, mate: null, aggro: 0, hurtTimer: 99, strikeTimer: 99, stamina: 1,
     alive: true, deathCause: null, killedBy: null,
     stride: rng.range(0, 2),
   };
@@ -99,6 +103,18 @@ export function createAnimal(species: SpeciesDef, x: number, y: number, rng: Rng
 
 export function isMature(a: Animal): boolean {
   return a.age >= a.species.matureDays * SIM.daySeconds;
+}
+
+/** Juveniles follow a living parent. Returns true if it is walking toward it this tick. */
+export function followParent(a: Animal, minDist: number): boolean {
+  const p = a.parent;
+  if (!p || !p.alive || isMature(a)) { a.parent = isMature(a) ? null : a.parent; return false; }
+  const d = Math.hypot(p.x - a.x, p.y - a.y);
+  if (d < minDist) return false;
+  a.behaviour = 'following';
+  a.desiredHeading = Math.atan2(p.y - a.y, p.x - a.x);
+  a.desiredSpeed = Math.min(a.species.runSpeed * 0.8, Math.max(a.species.walkSpeed * 1.2, p.speed * 1.15));
+  return true;
 }
 
 export function energyFrac(a: Animal): number {
