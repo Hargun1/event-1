@@ -3,8 +3,7 @@
 ### Team Name
 - Oregano
 
-### Track Number & Name
-- TODO: add the track number and name (e.g. "Track X – Name")
+### Track Number - 4 & Name - living world and simulation
 
 ### Problem Statement Name
 - Ecosystem Simulation Game
