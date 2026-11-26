@@ -8,6 +8,7 @@ export class InputController {
   private joy = { x: 0, y: 0, active: false };
   private touchSprint = false;
   private touchAttack = false;
+  private breedReq = false;
   private rig: CameraRig;
   enabled = false;
 
@@ -16,6 +17,7 @@ export class InputController {
     window.addEventListener('keydown', e => {
       if ((e.target as HTMLElement).tagName === 'INPUT') return;
       this.keys.add(e.code);
+      if (this.enabled && e.code === 'KeyB' && !e.repeat) this.breedReq = true;
       if (this.enabled && ['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) e.preventDefault();
     });
     window.addEventListener('keyup', e => this.keys.delete(e.code));
@@ -35,7 +37,8 @@ export class InputController {
   }
 
   /** Wires the on-screen joystick and buttons (touch devices). */
-  bindTouch(stick: HTMLElement, knob: HTMLElement, attackBtn: HTMLElement, sprintBtn: HTMLElement): void {
+  bindTouch(stick: HTMLElement, knob: HTMLElement, attackBtn: HTMLElement, sprintBtn: HTMLElement, breedBtn: HTMLElement): void {
+    breedBtn.addEventListener('pointerdown', e => { e.preventDefault(); this.breedReq = true; });
     let id = -1, cx = 0, cy = 0;
     const R = 46;
     const move = (e: PointerEvent) => {
@@ -78,5 +81,6 @@ export class InputController {
     out.sprint = k.has('ShiftLeft') || k.has('ShiftRight') || this.touchSprint;
     this.attackPulse -= dt;
     out.attack = k.has('Space') || k.has('KeyJ') || this.touchAttack || this.attackPulse > 0;
+    if (this.breedReq) { out.breed = true; this.breedReq = false; }
   }
 }

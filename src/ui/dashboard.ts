@@ -148,7 +148,8 @@ export class Dashboard {
         <dt>Behaviour</dt><dd>${a.alive ? BEHAVIOUR_TEXT[a.behaviour] : '—'}</dd>
         <dt>Status</dt><dd><span class="pill ${cls}">${status}</span></dd>
         <dt>Attack</dt><dd>${s.attack ? `${s.attack} dmg · ${Math.round(s.armor * 100)}% armour` : 'Harmless'}</dd>
-      </dl>`;
+      </dl>
+      ${a.alive ? `<div class="crit-title">Can reproduce when:</div><ul class="crit">${this.ctl.eco.criteria(a).map(c => `<li class="${c.ok ? 'ok' : ''}">${c.label}</li>`).join('')}</ul>` : ''}`;
     box.querySelector('.insp-close')!.addEventListener('click', () => this.ctl.select(null));
   }
 }

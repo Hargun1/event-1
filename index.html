@@ -33,6 +33,7 @@
         <button class="seg" data-speed="4">4x</button>
       </div>
       <button class="btn" id="resetBtn" aria-label="Reset zone"><svg viewBox="0 0 20 20"><path d="M4 10a6 6 0 1 0 2-4.5M4 3v4h4" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Reset</span></button>
+      <button class="btn icon" id="soundBtn" aria-label="Sound on" title="Sound & narrator (M)"><svg viewBox="0 0 20 20" id="soundIcon"></svg></button>
       <button class="btn" id="panelBtn" aria-expanded="false" aria-controls="panel"><svg viewBox="0 0 20 20"><path d="M3 15l4-5 3 3 3-6 4 8" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Ecosystem</span></button>
     </div>
   </header>
@@ -46,16 +47,18 @@
         <div class="stat-bar health"><span>HP</span><i><b id="meHealth"></b></i><em id="meHealthTxt"></em></div>
         <div class="stat-bar energy"><span>Food</span><i><b id="meEnergy"></b></i><em id="meEnergyTxt"></em></div>
         <div class="stat-bar stamina"><span>Run</span><i><b id="meStamina"></b></i><em></em></div>
+        <div class="breed" id="meBreed"></div>
       </div>
     </div>
     <div class="target" id="target" hidden></div>
   </section>
   <div class="hint" id="hint" hidden>
-    <b>WASD</b> move · <b>Shift</b> sprint · <b>Space</b>/<b>click</b> attack · <b>Q/E</b> or right-drag turn · <b>wheel</b> zoom · <b>P</b> pause
+    <b>WASD</b> move · <b>Shift</b> sprint · <b>Space</b>/<b>click</b> attack · <b>B</b> breed · <b>Q/E</b> or right-drag turn · <b>wheel</b> zoom · <b>P</b> pause
   </div>
   <div class="touch" id="touch" hidden>
     <div class="stick" id="stick"><div class="knob" id="knob"></div></div>
     <div class="touch-btns">
+      <button class="tbtn breed" id="tBreed">Breed</button>
       <button class="tbtn sprint" id="tSprint">Sprint</button>
       <button class="tbtn attack" id="tAttack">Attack</button>
     </div>
@@ -76,6 +79,12 @@
       </section>
       <section class="box" id="settings">
         <header class="box-head"><h2>Ecosystem settings</h2></header>
+        <div class="group-label">Release animals now <span class="tag live">live</span></div>
+        <div class="release">
+          <select id="releaseSpecies" aria-label="Species to release"></select>
+          <div class="slider"><label for="releaseCount">How many</label><output id="releaseCountV">5</output><input type="range" id="releaseCount" min="1" max="30" step="1" value="5"></div>
+          <button class="btn wide" id="releaseBtn">Release into the zone</button>
+        </div>
         <div class="group-label">Starting population <span class="tag">applies on reset</span></div>
         <div id="popSliders"></div>
         <div class="group-label">Environment <span class="tag live">live</span></div>

@@ -47,6 +47,8 @@ export interface Animal {
 
   // combat
   isPlayer: boolean;
+  /** Offspring of the player (never challenges the player). */
+  kin: boolean;
   /** Seconds this animal stays aggressive toward the player. */
   aggro: number;
   /** Seconds since last damage (renderer flashes / shows health bar). */
@@ -89,7 +91,7 @@ export function createAnimal(species: SpeciesDef, x: number, y: number, rng: Rng
     thinkTimer: rng.range(0, 0.5),
     wanderAngle: rng.range(0, Math.PI * 2),
     chaseTime: 0, restTime: 0, attackCooldown: 0, pursuedBy: 0, hidden: false,
-    isPlayer: false, aggro: 0, hurtTimer: 99, strikeTimer: 99, stamina: 1,
+    isPlayer: false, kin: false, aggro: 0, hurtTimer: 99, strikeTimer: 99, stamina: 1,
     alive: true, deathCause: null, killedBy: null,
     stride: rng.range(0, 2),
   };

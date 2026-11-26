@@ -84,7 +84,7 @@ export function aiFight(a: Animal, dt: number, eco: Ecosystem): boolean {
 /** Rival predators (and bulls of armed herbivores) may challenge a player who wanders into their space. */
 export function maybeChallenge(a: Animal, eco: Ecosystem): void {
   const p = eco.player;
-  if (!p || !p.alive || a.aggro !== 0 || !isMature(a) || a.species.attack <= 0) return;
+  if (!p || !p.alive || a.kin || a.aggro !== 0 || !isMature(a) || a.species.attack <= 0) return;
   if (a.species.trophic !== 'predator') return;
   if (a.energy < a.species.maxEnergy * 0.35 || a.health < a.maxHealth * 0.6) return;
   const d = Math.hypot(p.x - a.x, p.y - a.y);

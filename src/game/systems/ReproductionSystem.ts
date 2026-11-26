@@ -1,40 +1,67 @@
-import { SIM } from '../config.ts';
+import { SIM, WORLD } from '../config.ts';
 import type { Animal } from '../entities/Animal.ts';
 import { createAnimal, isMature } from '../entities/Animal.ts';
 import { clamp } from '../utils/math.ts';
-import { WORLD } from '../config.ts';
 import type { Ecosystem } from './Ecosystem.ts';
 
 const P = WORLD.play;
 
-/**
- * Healthy, mature, well-fed animals give birth after a cooldown. Costs energy.
- * Density-dependent: crowded herds and overlapping predator territories suppress breeding.
- */
-export function tryReproduce(a: Animal, eco: Ecosystem): Animal | null {
-  const s = a.species;
-  if (a.breedCooldown > 0 || !isMature(a)) return null;
-  if (a.energy < s.breedThreshold * s.maxEnergy || a.health < a.maxHealth * 0.7) return null;
-  if (a.behaviour === 'fleeing' || a.behaviour === 'hunting') return null;
-  // herbivores only breed where food is plentiful (density-dependent birth rate)
-  if (s.trophic === 'herbivore' && eco.grass.at(a.x, a.y) < 0.4) return null;
-  if (eco.livingCount() >= SIM.maxAnimals) { a.breedCooldown = 4; return null; }
+export interface Criterion { label: string; ok: boolean }
 
+function crowding(a: Animal, eco: Ecosystem): number {
   let crowd = 0;
-  const r = s.crowdRadius;
+  const s = a.species, r = s.crowdRadius;
   eco.grid.query(a.x, a.y, r, o => {
-    if (o === a || !o.alive) return;
-    const same = o.species === s;
-    if (same && Math.hypot(o.x - a.x, o.y - a.y) < r) crowd++;
+    if (o === a || !o.alive || o.species !== s || o.kin) return;
+    if (Math.hypot(o.x - a.x, o.y - a.y) < r) crowd++;
   });
-  if (crowd >= s.crowdLimit) { a.breedCooldown = 4; return null; }
+  return crowd;
+}
 
+/**
+ * The reproduction rules, as an explicit checklist (shown in the inspector and player HUD).
+ * An animal can give birth only when every criterion is met.
+ */
+export function breedCriteria(a: Animal, eco: Ecosystem): Criterion[] {
+  const s = a.species;
+  const list: Criterion[] = [
+    { label: 'Adult', ok: isMature(a) },
+    { label: `Energy ≥ ${Math.round(s.breedThreshold * 100)}%`, ok: a.energy >= s.breedThreshold * s.maxEnergy },
+    { label: 'Health ≥ 70%', ok: a.health >= a.maxHealth * 0.7 },
+    { label: 'Rested since last birth', ok: a.breedCooldown <= 0 },
+    { label: 'Calm (not fleeing / fighting)', ok: !['fleeing', 'hunting', 'fighting'].includes(a.behaviour) || (a.isPlayer && a.behaviour === 'hunting' && a.speed < 1) },
+  ];
+  if (s.trophic === 'herbivore') list.push({ label: `Plenty of ${eco.zone.food} here`, ok: eco.grass.at(a.x, a.y) >= 0.4 });
+  if (!a.isPlayer) list.push({ label: s.trophic === 'predator' ? 'Own territory (no rival nearby)' : 'Herd not overcrowded', ok: crowding(a, eco) < s.crowdLimit });
+  list.push({ label: 'Island not at capacity', ok: eco.livingCount() < SIM.maxAnimals });
+  return list;
+}
+
+/** Creates the offspring and pays the energy cost. */
+export function giveBirth(a: Animal, eco: Ecosystem): Animal {
+  const s = a.species;
   a.energy -= s.breedCost * s.maxEnergy;
   a.breedCooldown = (s.breedCooldown * eco.rng.range(0.8, 1.2)) / eco.settings.reproduction;
   a.behaviour = 'reproducing';
   a.behaviourHold = 1.2;
-  a.desiredSpeed = 0;
+  if (!a.isPlayer) a.desiredSpeed = 0;
   const bx = clamp(a.x + eco.rng.range(-10, 10), P.left + 6, P.right - 6);
   const by = clamp(a.y + eco.rng.range(4, 10), P.top + 6, P.bottom - 6);
-  return createAnimal(s, bx, by, eco.rng, false);
+  const baby = createAnimal(s, bx, by, eco.rng, false);
+  baby.kin = a.isPlayer || a.kin;
+  return baby;
+}
+
+/** AI animals breed automatically as soon as all criteria are met. */
+export function tryReproduce(a: Animal, eco: Ecosystem): Animal | null {
+  const s = a.species;
+  // cheap early-outs before the full checklist
+  if (a.breedCooldown > 0 || !isMature(a) || a.energy < s.breedThreshold * s.maxEnergy) return null;
+  const crit = breedCriteria(a, eco);
+  if (!crit.every(c => c.ok)) {
+    // blocked by crowding or capacity: try again a little later
+    if (crit.some(c => !c.ok && (c.label.startsWith('Own territory') || c.label.startsWith('Herd') || c.label.startsWith('Island')))) a.breedCooldown = 4;
+    return null;
+  }
+  return giveBirth(a, eco);
 }

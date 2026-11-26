@@ -16,6 +16,8 @@ import { initControls } from './ui/controls.ts';
 import { Dashboard } from './ui/dashboard.ts';
 import { PopulationChart } from './ui/charts.ts';
 import { Hud, buildMenu } from './ui/hud.ts';
+import { Sound } from './audio/Sound.ts';
+import type { Ecosystem } from './game/systems/Ecosystem.ts';
 
 const $ = (id: string) => document.getElementById(id)!;
 
@@ -26,9 +28,80 @@ const world = new World3D($('viewport'));
 const views = new AnimalViews(world, lib);
 const rig = new CameraRig(world.camera, world.renderer.domElement);
 const input = new InputController(world.renderer.domElement, rig);
-input.bindTouch($('stick'), $('knob'), $('tAttack'), $('tSprint'));
+input.bindTouch($('stick'), $('knob'), $('tAttack'), $('tSprint'), $('tBreed'));
 const overlay = new Overlay($('overlay'));
 const thumbs = new Thumbnails(lib);
+const sound = new Sound();
+
+// ---- sound: unlock on first gesture, mute toggle (button / M)
+const SOUND_ON = '<path d="M3 8h3l4-3.5v11L6 12H3z"/><path d="M13 7.5a3.5 3.5 0 0 1 0 5M15 5a7 7 0 0 1 0 10" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round"/>';
+const SOUND_OFF = '<path d="M3 8h3l4-3.5v11L6 12H3z"/><path d="M13 7.5l4 5M17 7.5l-4 5" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round"/>';
+const syncSoundBtn = () => { $('soundIcon').innerHTML = sound.enabled ? SOUND_ON : SOUND_OFF; $('soundBtn').setAttribute('aria-label', sound.enabled ? 'Mute sound' : 'Unmute sound'); };
+const toggleSound = () => { sound.unlock(); sound.setEnabled(!sound.enabled); syncSoundBtn(); };
+$('soundBtn').addEventListener('click', toggleSound);
+window.addEventListener('pointerdown', () => sound.unlock());
+window.addEventListener('keydown', e => { sound.unlock(); if (e.code === 'KeyM' && (e.target as HTMLElement).tagName !== 'INPUT') toggleSound(); });
+syncSoundBtn();
+
+const sv = new THREE.Vector3();
+/** Distance-based volume and screen-side panning for a sim position. */
+function spatial(x: number, y: number): { vol: number; pan: number } {
+  world.toWorld(x, y, sv);
+  const d = sv.distanceTo(world.camera.position);
+  sv.applyMatrix4(world.camera.matrixWorldInverse);
+  return { vol: Math.max(0, 1 - d / 95) ** 1.4, pan: sv.x / (Math.abs(sv.z) + 12) };
+}
+
+let lastEventSpoken = 0, callTimer = 0, lastStrike = 99;
+function audioFrame(eco: Ecosystem, dt: number): void {
+  for (const f of eco.fx) {
+    if (f.type === 'kill') {
+      const s = spatial(f.x, f.y);
+      sound.sfx('bite', s.vol, s.pan);
+      const pred = eco.animals.find(a => a.id === f.predatorId);
+      if (pred) sound.call(pred.species.id, s.vol * 0.9, s.pan);
+    } else if (f.type === 'hit') {
+      const s = spatial(f.x, f.y);
+      sound.sfx(f.onPlayer ? 'hurt' : 'bite', f.onPlayer ? 0.9 : s.vol * 0.8, s.pan);
+    } else if (f.type === 'birth') {
+      const s = spatial(f.x, f.y);
+      sound.sfx('birth', s.vol * 0.5, s.pan);
+    }
+  }
+  // the player's own roar / swing
+  const p = eco.player;
+  if (p && p.alive) {
+    if (p.strikeTimer < lastStrike && p.strikeTimer < 0.05) {
+      sound.sfx('swing', 0.6, 0);
+      if (Math.random() < 0.5 || p.species.id === 'trex') sound.call(p.species.id, 0.8, 0);
+    }
+    lastStrike = p.strikeTimer;
+  }
+  // nearby animals call now and then (fighters and fleeing animals more often)
+  callTimer -= dt;
+  if (callTimer <= 0 && eco.animals.length) {
+    callTimer = 0.6 + Math.random() * 0.8;
+    for (let k = 0; k < 6; k++) {
+      const a = eco.animals[Math.floor(Math.random() * eco.animals.length)];
+      if (!a.alive || a.isPlayer) continue;
+      const s = spatial(a.x, a.y);
+      if (s.vol < 0.15) continue;
+      const excited = a.behaviour === 'fighting' || a.behaviour === 'fleeing' || a.behaviour === 'hunting';
+      if (excited || Math.random() < 0.3) { sound.call(a.species.id, s.vol * (excited ? 1 : 0.7), s.pan); break; }
+    }
+  }
+  sound.tickAmbient(dt);
+  // narrator: extinctions, your milestones, challenges, collapse
+  for (const e of eco.events) {
+    if (e.id <= lastEventSpoken) continue;
+    lastEventSpoken = e.id;
+    const t = e.text;
+    if (e.kind === 'extinct') sound.say(t.split('—')[0]);
+    else if (e.kind === 'player' && /offspring|killed by|starved|enter/.test(t)) sound.say(t.replace(/\(.*\)/, ''));
+    else if (e.kind === 'player' && /took down/.test(t) && (eco.playerStats.kills === 1 || eco.playerStats.kills % 5 === 0)) sound.say(eco.playerStats.kills === 1 ? 'First kill!' : `${eco.playerStats.kills} kills!`);
+    else if (e.kind === 'warn' && /challenges you|collapse|famine/i.test(t)) sound.say(t.split(':')[0].split('—')[0]);
+  }
+}
 
 const placeholder = (id: SpeciesId) =>
   `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 30"><ellipse cx="20" cy="17" rx="13" ry="8" fill="${SPECIES[id].color}"/></svg>`)}`;
@@ -64,6 +137,8 @@ async function startZone(zone: ZoneId, mode: 'play' | 'watch' | 'menu'): Promise
     else world.updateVegetation(ctl.eco.grass);
     if (token !== loadToken) return;
     $('zoneName').textContent = z.name;
+    sound.setZone(zone);
+    lastEventSpoken = ctl.eco.events.length ? ctl.eco.events[ctl.eco.events.length - 1].id - (mode === 'menu' ? 0 : 1) : 0;
     chart.setSpecies(z.species, z.food);
     rig.setZone(zone);
     applyMode();
@@ -90,7 +165,7 @@ function applyMode(): void {
   lastMode = m;
 }
 ctl.onChange(() => { if (ctl.mode !== lastMode && zoneReady) applyMode(); });
-ctl.onReset(() => { views.clear(); overlay.clear(); world.updateVegetation(ctl.eco.grass); if (zoneReady) applyMode(); });
+ctl.onReset(() => { if (!zoneReady) return; views.clear(); overlay.clear(); world.updateVegetation(ctl.eco.grass); applyMode(); });
 
 $('homeBtn').addEventListener('click', () => { ctl.toMenu(); $('menu').hidden = false; });
 $('goMenuBtn').addEventListener('click', () => { $('gameover').hidden = true; ctl.toMenu(); $('menu').hidden = false; });
@@ -126,6 +201,7 @@ function frame(now: number): void {
       while (acc >= SIM.fixedDt && n < 16) { eco.step(SIM.fixedDt); acc -= SIM.fixedDt; n++; }
       if (n === 16) acc = 0;
     }
+    audioFrame(eco, dt);
     views.handleFx(eco.fx);
     eco.fx.length = 0;
     const vdt = simulating ? dt * ctl.speed : 0;

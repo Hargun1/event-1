@@ -54,6 +54,17 @@ export function initControls(ctl: GameController): void {
   const syncSeed = () => { seed.value = String(ctl.pending.seed); rnd.checked = ctl.pending.randomizeSeed; };
   seed.addEventListener('change', () => { ctl.setSetting('seed', seed.value); syncSeed(); });
   rnd.addEventListener('change', () => ctl.setRandomSeed(rnd.checked));
+  // live release ("scale up" a species without resetting)
+  const relSel = $('releaseSpecies') as HTMLSelectElement, relCount = $('releaseCount') as HTMLInputElement, relV = $('releaseCountV');
+  const buildRelease = () => { relSel.innerHTML = ctl.eco.species.map(id => `<option value="${id}">${SPECIES[id].plural}</option>`).join(''); };
+  relCount.addEventListener('input', () => { relV.textContent = relCount.value; });
+  $('releaseBtn').addEventListener('click', () => {
+    const n = ctl.eco.release(relSel.value as keyof typeof SPECIES, Number(relCount.value));
+    $('releaseBtn').textContent = n ? `Released ${n}!` : 'Zone is full';
+    setTimeout(() => { $('releaseBtn').textContent = 'Release into the zone'; }, 1200);
+  });
+  ctl.onZone(buildRelease);
+  buildRelease();
   ctl.onZone(buildSettings);
   ctl.onReset(() => { for (const s of syncers) s(); syncSeed(); });
   buildSettings();

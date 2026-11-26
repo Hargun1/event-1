@@ -60,7 +60,7 @@ export class World3D {
   private zone: ZoneId = 'land';
   private pal: Palette = PALETTES.land;
   private groundCanvas = document.createElement('canvas');
-  private groundTex!: THREE.CanvasTexture;
+  private groundTex: THREE.CanvasTexture | null = null;
   private baseCanvas = document.createElement('canvas');
   private overlayCanvas = document.createElement('canvas');
   private lowres = document.createElement('canvas');
@@ -201,10 +201,18 @@ export class World3D {
 
   private buildOuter(): void {
     const pal = this.pal;
-    const outer = this.own(new THREE.Mesh(new THREE.PlaneGeometry(700, 700), new THREE.MeshStandardMaterial({ color: pal.outer, roughness: 1 })));
-    outer.rotation.x = -Math.PI / 2; outer.position.y = pal.rim - 0.05;
+    // surrounding ground is a ring: a big square with the arena cut out, at rim height
+    const shape = new THREE.Shape();
+    shape.moveTo(-350, -350); shape.lineTo(350, -350); shape.lineTo(350, 350); shape.lineTo(-350, 350); shape.closePath();
+    const hole = new THREE.Path();
+    const hx = WW / 2 - 0.5, hz = WH / 2 - 0.5;
+    hole.moveTo(-hx, -hz); hole.lineTo(-hx, hz); hole.lineTo(hx, hz); hole.lineTo(hx, -hz); hole.closePath();
+    shape.holes.push(hole);
+    const outerGeo = new THREE.ShapeGeometry(shape);
+    outerGeo.rotateX(-Math.PI / 2);
+    const outer = this.own(new THREE.Mesh(outerGeo, new THREE.MeshStandardMaterial({ color: pal.outer, roughness: 1 })));
+    outer.position.y = pal.rim - 0.05;
     outer.receiveShadow = true;
-    // cut a hole under the arena by lowering it slightly below the rim — the arena mesh covers its centre
     this.zoneGroup.add(outer);
 
     // ring of scenery around the arena
@@ -292,6 +300,7 @@ export class World3D {
 
   /** Repaints ground colour and rescales vegetation from the live grass densities. */
   updateVegetation(grass: GrassField): void {
+    if (!this.groundTex) return; // zone not built yet
     const pal = this.pal;
     const lc = this.lowres.getContext('2d')!;
     const img = lc.createImageData(grass.gw, grass.gh), d = img.data;

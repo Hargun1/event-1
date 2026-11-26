@@ -9,10 +9,12 @@ export interface PlayerInput {
   my: number;
   sprint: boolean;
   attack: boolean;
+  /** One-shot request to breed (consumed by the simulation). */
+  breed: boolean;
 }
 
 export function createInput(): PlayerInput {
-  return { mx: 0, my: 0, sprint: false, attack: false };
+  return { mx: 0, my: 0, sprint: false, attack: false, breed: false };
 }
 
 export function updatePlayer(p: Animal, dt: number, input: PlayerInput, eco: Ecosystem): void {
@@ -31,6 +33,7 @@ export function updatePlayer(p: Animal, dt: number, input: PlayerInput, eco: Eco
   }
 
   if (input.attack && p.attackCooldown <= 0) playerAttack(p, eco);
+  if (input.breed) { input.breed = false; eco.playerBreed(); }
 
   if (p.strikeTimer < 0.5) p.behaviour = 'fighting';
   else if (sprinting) p.behaviour = 'hunting';

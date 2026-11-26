@@ -17,7 +17,8 @@ import { buildCovers, getTerrain, isWater } from '../world/terrain.ts';
 import type { Cover, Terrain } from '../world/terrain.ts';
 import { moveAnimal } from './MovementSystem.ts';
 import { updateLifecycle } from './LifecycleSystem.ts';
-import { tryReproduce } from './ReproductionSystem.ts';
+import { breedCriteria, giveBirth, tryReproduce } from './ReproductionSystem.ts';
+import type { Criterion } from './ReproductionSystem.ts';
 import { SpatialGrid } from './SpatialGrid.ts';
 import { emptyDay, evaluateStatus, extinctionReason, get, inc } from './PopulationSystem.ts';
 import type { Counts, DayRecord, EcoStatus, Sample } from './PopulationSystem.ts';
@@ -30,7 +31,7 @@ export type FxEvent =
   | { type: 'birth'; id: number; x: number; y: number }
   | { type: 'hit'; id: number; x: number; y: number; amount: number; onPlayer: boolean };
 
-export interface PlayerStats { kills: number; damage: number; spawnTime: number; deathTime: number | null; killedBy: string | null }
+export interface PlayerStats { kills: number; cubs: number; damage: number; spawnTime: number; deathTime: number | null; killedBy: string | null }
 
 const P = WORLD.play;
 
@@ -57,7 +58,7 @@ export class Ecosystem {
   /** Player-controlled animal (null in watch mode or after death). */
   player: Animal | null = null;
   input: PlayerInput = createInput();
-  playerStats: PlayerStats = { kills: 0, damage: 0, spawnTime: 0, deathTime: null, killedBy: null };
+  playerStats: PlayerStats = { kills: 0, cubs: 0, damage: 0, spawnTime: 0, deathTime: null, killedBy: null };
   playerInvuln = 0;
 
   private newborns: Animal[] = [];
@@ -93,7 +94,7 @@ export class Ecosystem {
     this.events = []; this.fx = []; this.history = []; this.records = [];
     this.today = emptyDay(); this.throttle.clear(); this.flagDay.clear(); this.extinct.clear();
     this.lastSample = -1; this.player = null;
-    this.playerStats = { kills: 0, damage: 0, spawnTime: 0, deathTime: null, killedBy: null };
+    this.playerStats = { kills: 0, cubs: 0, damage: 0, spawnTime: 0, deathTime: null, killedBy: null };
     this.grass.reset(this.rng, this.settings.initialGrass);
     for (const id of this.species) {
       const n = Math.max(0, Math.round(this.settings.populations[id] ?? 0));
@@ -137,14 +138,53 @@ export class Ecosystem {
     p.maxHealth = s.maxHealth * PLAYER.healthMult;
     p.health = p.maxHealth;
     p.energy = s.maxEnergy * 0.85;
-    p.breedCooldown = Infinity;
+    p.breedCooldown = s.breedCooldown * 0.5;
     this.player = p;
     this.animals.push(p);
     this.living = this.animals.length;
     this.playerInvuln = PLAYER.respawnInvuln;
-    this.playerStats = { kills: 0, damage: 0, spawnTime: this.time, deathTime: null, killedBy: null };
+    this.playerStats = { kills: 0, cubs: 0, damage: 0, spawnTime: this.time, deathTime: null, killedBy: null };
     this.emit('player', `You enter ${this.zone.name} as a ${s.name}. Hunt to stay fed!`);
     return p;
+  }
+
+  /** Reproduction checklist for any animal (inspector / HUD). */
+  criteria(a: Animal): Criterion[] { return breedCriteria(a, this); }
+
+  /** Player breeds when every criterion is met; the cub is on the player's side. */
+  playerBreed(): boolean {
+    const p = this.player;
+    if (!p || !p.alive) return false;
+    const missing = breedCriteria(p, this).filter(c => !c.ok);
+    if (missing.length) {
+      this.emit('player', `Can't breed yet — ${missing.map(c => c.label.toLowerCase()).join(', ')}.`, 'breed-fail', 6);
+      return false;
+    }
+    const baby = giveBirth(p, this);
+    this.newborns.push(baby);
+    inc(this.today.births, p.species.id);
+    this.playerStats.cubs++;
+    this.fx.push({ type: 'birth', id: baby.id, x: baby.x, y: baby.y });
+    this.emit('player', `Your ${p.species.name} offspring was born! It will roam the zone on its own.`);
+    return true;
+  }
+
+  /** Live "release" control: drop extra adults of one species into the running zone. */
+  release(id: SpeciesId, n: number): number {
+    const s = SPECIES[id];
+    if (!this.species.includes(id)) return 0;
+    const room = Math.max(0, SIM.maxAnimals - this.livingCount());
+    const count = Math.min(Math.max(0, Math.round(n)), room);
+    const c = this.randomLand();
+    for (let i = 0; i < count; i++) {
+      let x = c.x + this.rng.range(-50, 50), y = c.y + this.rng.range(-30, 30);
+      if (isWater(this.terrain, x, y) || x < P.left + 10 || x > P.right - 10 || y < P.top + 10 || y > P.bottom - 10) ({ x, y } = this.randomLand());
+      const a = createAnimal(s, x, y, this.rng, true);
+      a.energy = s.maxEnergy * 0.75;
+      this.newborns.push(a);
+    }
+    if (count) { this.extinct.delete(id); this.emit('info', `Ranger released ${count} ${count === 1 ? s.name.toLowerCase() : s.plural.toLowerCase()}.`); }
+    return count;
   }
 
   removePlayer(): void {

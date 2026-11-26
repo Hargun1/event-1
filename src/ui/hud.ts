@@ -98,6 +98,13 @@ export class Hud {
       el('meEnergy').style.width = `${(p.energy / sp.maxEnergy) * 100}%`;
       el('meEnergyTxt').textContent = `${Math.round((p.energy / sp.maxEnergy) * 100)}%`;
       el('meStamina').style.width = `${p.stamina * 100}%`;
+      const crit = p.alive ? eco.criteria(p) : [];
+      const missing = crit.filter(c => !c.ok);
+      const ready = p.alive && missing.length === 0;
+      const br = el('meBreed');
+      br.className = 'breed' + (ready ? ' ready' : '');
+      br.innerHTML = ready ? '<b>Ready to breed</b> — press B' : `Breed: <b>${missing.map(c => c.label).slice(0, 2).join(', ') || '—'}</b>${eco.playerStats.cubs ? ` · ${eco.playerStats.cubs} offspring` : ''}`;
+      el('tBreed').classList.toggle('ready', ready);
     }
     const t = p && p.alive ? this.nearestTarget(p) : null;
     this.targetId = t ? t.id : null;
