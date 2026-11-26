@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no" />
+  <meta name="theme-color" content="#1f3d2b" />
+  <title>WILDSCAPE — A Living Ecosystem</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='15' fill='%231f3d2b'/%3E%3Cpath d='M9 21c3-9 9-12 15-12-1 7-5 13-13 14' fill='%236fae4b'/%3E%3C/svg%3E" />
+</head>
+<body>
+  <div id="viewport"></div>
+  <div id="overlay"></div>
+
+  <!-- ===== top bar ===== -->
+  <header class="topbar" id="topbar">
+    <button class="brand" id="homeBtn" aria-label="Back to zone select">
+      <svg class="logo" viewBox="0 0 40 40" aria-hidden="true"><circle cx="20" cy="20" r="19" fill="#1f3d2b"/><path d="M10 27c4-12 12-16 20-16-1 9-7 17-17 18" fill="#6fae4b"/><path d="M12 28c5-6 9-9 14-12" stroke="#f6f1e3" stroke-width="1.6" fill="none" stroke-linecap="round"/></svg>
+      <span><b>WILDSCAPE</b><small id="zoneName">A Living Ecosystem</small></span>
+    </button>
+    <div class="hud-chips">
+      <div class="chip"><span class="chip-label">Day</span><b id="day">0</b></div>
+      <div class="chip status" id="ecoStatus">Thriving</div>
+    </div>
+    <div class="toolbar">
+      <div class="segmented mode" role="group" aria-label="Mode">
+        <button class="seg" data-mode="play">Play</button>
+        <button class="seg" data-mode="watch">Watch</button>
+      </div>
+      <button class="btn icon" id="playBtn" aria-label="Pause"><svg viewBox="0 0 20 20" id="playIcon"></svg></button>
+      <div class="segmented speed" role="group" aria-label="Simulation speed">
+        <button class="seg" data-speed="1">1x</button>
+        <button class="seg" data-speed="2">2x</button>
+        <button class="seg" data-speed="4">4x</button>
+      </div>
+      <button class="btn" id="resetBtn" aria-label="Reset zone"><svg viewBox="0 0 20 20"><path d="M4 10a6 6 0 1 0 2-4.5M4 3v4h4" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Reset</span></button>
+      <button class="btn" id="panelBtn" aria-expanded="false" aria-controls="panel"><svg viewBox="0 0 20 20"><path d="M3 15l4-5 3 3 3-6 4 8" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Ecosystem</span></button>
+    </div>
+  </header>
+
+  <!-- ===== player HUD ===== -->
+  <section class="hud" id="hud" hidden>
+    <div class="me">
+      <img id="meIcon" alt="" />
+      <div class="me-body">
+        <div class="me-name"><b id="meName">Lion</b><span id="meStats"></span></div>
+        <div class="stat-bar health"><span>HP</span><i><b id="meHealth"></b></i><em id="meHealthTxt"></em></div>
+        <div class="stat-bar energy"><span>Food</span><i><b id="meEnergy"></b></i><em id="meEnergyTxt"></em></div>
+        <div class="stat-bar stamina"><span>Run</span><i><b id="meStamina"></b></i><em></em></div>
+      </div>
+    </div>
+    <div class="target" id="target" hidden></div>
+  </section>
+  <div class="hint" id="hint" hidden>
+    <b>WASD</b> move · <b>Shift</b> sprint · <b>Space</b>/<b>click</b> attack · <b>Q/E</b> or right-drag turn · <b>wheel</b> zoom · <b>P</b> pause
+  </div>
+  <div class="touch" id="touch" hidden>
+    <div class="stick" id="stick"><div class="knob" id="knob"></div></div>
+    <div class="touch-btns">
+      <button class="tbtn sprint" id="tSprint">Sprint</button>
+      <button class="tbtn attack" id="tAttack">Attack</button>
+    </div>
+  </div>
+
+  <!-- ===== ecosystem drawer ===== -->
+  <aside class="panel" id="panel" aria-label="Ecosystem panel">
+    <div class="panel-scroll">
+      <p class="status-reason" id="statusReason"></p>
+      <div class="cards" id="cards"></div>
+      <section class="box">
+        <header class="box-head"><h2>Population trends</h2><div class="legend" id="legend"></div></header>
+        <canvas id="chart" height="170"></canvas>
+      </section>
+      <section class="box">
+        <header class="box-head"><h2>Ecosystem events</h2></header>
+        <ul class="feed" id="feed"></ul>
+      </section>
+      <section class="box" id="settings">
+        <header class="box-head"><h2>Ecosystem settings</h2></header>
+        <div class="group-label">Starting population <span class="tag">applies on reset</span></div>
+        <div id="popSliders"></div>
+        <div class="group-label">Environment <span class="tag live">live</span></div>
+        <div id="liveSliders"></div>
+        <div class="group-label">Next world <span class="tag">applies on reset</span></div>
+        <div id="worldSliders"></div>
+        <div class="seed-row">
+          <label for="seed">Seed</label>
+          <input type="number" id="seed" min="1" max="999999" step="1" />
+          <label class="check"><input type="checkbox" id="randomSeed" /> New seed each reset</label>
+        </div>
+        <button class="btn wide primary" id="applyBtn">Reset with these settings</button>
+      </section>
+      <p class="credits" id="credits"></p>
+    </div>
+  </aside>
+
+  <aside class="inspector" id="inspector" hidden></aside>
+
+  <!-- ===== zone select ===== -->
+  <section class="screen" id="menu">
+    <div class="menu-inner">
+      <div class="menu-brand">
+        <svg class="logo big" viewBox="0 0 40 40" aria-hidden="true"><circle cx="20" cy="20" r="19" fill="#1f3d2b"/><path d="M10 27c4-12 12-16 20-16-1 9-7 17-17 18" fill="#6fae4b"/><path d="M12 28c5-6 9-9 14-12" stroke="#f6f1e3" stroke-width="1.6" fill="none" stroke-linecap="round"/></svg>
+        <div><h1>WILDSCAPE</h1><p>A Living Ecosystem — choose your world</p></div>
+      </div>
+      <div class="zones" id="zones"></div>
+      <p class="menu-note">Every zone is a living ecosystem: grazers eat, predators hunt, populations boom and crash — with or without you. Play as the apex predator, or just watch.</p>
+      <p class="credits" id="menuCredits"></p>
+    </div>
+  </section>
+
+  <section class="screen dim" id="gameover" hidden>
+    <div class="dialog">
+      <h2 id="goTitle">You died</h2>
+      <p id="goText"></p>
+      <div class="go-stats" id="goStats"></div>
+      <div class="dialog-btns">
+        <button class="btn primary" id="respawnBtn">Respawn</button>
+        <button class="btn" id="goWatchBtn">Keep watching</button>
+        <button class="btn" id="goMenuBtn">Change zone</button>
+      </div>
+    </div>
+  </section>
+
+  <div class="loading" id="loading"><div class="spinner"></div><span id="loadingText">Loading…</span></div>
+
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>
